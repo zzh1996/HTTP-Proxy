@@ -74,7 +74,7 @@ class ClientThread(threading.Thread):
                         if urlp.query:url+=b'?'+urlp.query
                         if urlp.fragment:url+=b'#'+urlp.fragment
                         new_headers=[b' '.join([headers[0].split(b' ')[0],url,headers[0].split(b' ')[2]])]
-                        for header in headers:
+                        for header in headers[1:]:
                             if header.startswith(b'Proxy-Connection:'):
                                 new_headers.append(header[6:])
                             else:
