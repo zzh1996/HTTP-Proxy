@@ -68,6 +68,10 @@ class ClientThread(threading.Thread):
                     else:
                         urlp = urlparse(url)
                         host, port = urlp.hostname, urlp.port
+                        if host.endswith(b'csdn.net'):
+                            self.client.send(b'HTTP/1.1 403 Forbidden\r\n\r\n')
+                            self.client.close()
+                            break
                         if not port:
                             port=80
                         url=urlp.path
