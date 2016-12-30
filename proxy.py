@@ -36,20 +36,22 @@ class ClientThread(threading.Thread):
         state = 0
         rest_len = 0
         while True:
-            try:
-                data = self.client.recv(2048)
-            except:
-                data = b''
-            if not data:
-                print(self.addr, 'closed')
-                if self.server:
-                    self.server.close()
-                break
+            if state!=0 and not buffer or state==0 and buffer.find(b'\r\n\r\n')<0:
+                try:
+                    data = self.client.recv(2048)
+                except:
+                    data = b''
+                if not data:
+                    print(self.addr, 'closed')
+                    if self.server:
+                        self.server.close()
+                    break
+                buffer+=data
             if state == 0:  # reading headers
-                buffer += data
                 index = buffer.find(b'\r\n\r\n')
                 if index >= 0:
                     headers = buffer[:index].split(b'\r\n')
+                    buffer=buffer[index+4:]
                     print(self.addr, headers[0].decode("utf-8"))
                     method = headers[0].split(b' ')[0]
                     url = headers[0].split(b' ')[1]
@@ -63,13 +65,43 @@ class ClientThread(threading.Thread):
                         self.server_thread = ServerThread(self.server, self.client)
                         self.server_thread.start()
                         state = 1
-
-                    elif method == b'GET':
-
+                    else:
                         urlp = urlparse(url)
-                        host, port = urlp.host, urlp.port
+                        host, port = urlp.hostname, urlp.port
+                        if not port:
+                            port=80
+                        url=urlp.path
+                        if urlp.query:url+=b'?'+urlp.query
+                        if urlp.fragment:url+=b'#'+urlp.fragment
+                        new_headers=[b' '.join([headers[0].split(b' ')[0],url,headers[0].split(b' ')[2]])]
+                        for header in headers:
+                            if header.startswith(b'Proxy-Connection:'):
+                                new_headers.append(header[6:])
+                            else:
+                                new_headers.append(header)
+                            if header.startswith(b'Content-Length:'):
+                                rest_len=int(header[16:])
+                                if rest_len>0:
+                                    state=2
+                        if not self.server:
+                            self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                            self.server.connect((host, port))
+                            self.server_thread = ServerThread(self.server, self.client)
+                            self.server_thread.start()
+                        self.server.send(b'\r\n'.join(new_headers)+b'\r\n\r\n')
             elif state == 1:  # forwarding
-                self.server.send(data)
+                self.server.send(buffer)
+                buffer=b''
+            elif state==2: # post content
+                if len(buffer)<rest_len:
+                    rest_len-=len(buffer)
+                    self.server.send(buffer)
+                    buffer=b''
+                else:
+                    self.server.send(buffer[:rest_len])
+                    buffer=buffer[rest_len:]
+                    rest_len=0
+                    state=0
 
 
 class ProxyServer:
